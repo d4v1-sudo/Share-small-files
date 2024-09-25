@@ -1,8 +1,13 @@
 const fileSystem = require("fs");
 const http = require("http");
-const formidable = require("formidable");
+const { IncomingForm } = require("formidable");
 const path = require("path");
 const operatingSystem = require("os");
+
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fileSystem.existsSync(uploadsDir)) {
+  fileSystem.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const server = http.createServer((req, res) => {
   res.statusCode = 200;
@@ -22,60 +27,75 @@ const server = http.createServer((req, res) => {
     res.end();
     return;
   }
+
   if (req.url === "/send_files") {
     res.setHeader("Content-Type", "text/html");
     res.write(htmlForm());
     res.end();
     return;
   }
-  if (req.url === "/file_submit") {
-    const form = formidable({ multiples: true });
-    form.parse(req, (err, fields, files) => {
-      if (err) {
-        console.log(err);
-        res.end("Encounterd error");
-        return;
-      }
-      ["file", "folder"].map((formItem) => {
-        if (Array.isArray(files[formItem])) {
-          files[formItem].map((each_file) => {
-            let readStream = fileSystem.createReadStream(each_file.path, {
-              highWaterMark: 512 * 1024,
-            });
-            if (!fileSystem.existsSync(path.dirname(each_file.name))) {
-              fileSystem.mkdirSync(path.dirname(each_file.name));
+
+if (req.url === "/file_submit") {
+  console.log("Receiving file submission");
+  const form = new IncomingForm({
+    allowEmptyFiles: true,
+    minFileSize: 0,
+    maxFileSize: 200 * 1024 * 1024, // 200MB max file size
+    multiples: true
+  });
+
+  form.parse(req, (err, fields, files) => {
+    if (err) {
+      console.error("Error parsing form:", err);
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Internal Server Error: " + err.message);
+      return;
+    }
+
+    console.log("Fields:", fields);
+    console.log("Files:", files);
+
+    try {
+      let filesUploaded = 0;
+
+      ["file", "folder"].forEach((formItem) => {
+        if (files[formItem]) {
+          const fileArray = Array.isArray(files[formItem]) ? files[formItem] : [files[formItem]];
+          fileArray.forEach((file) => {
+            if (!file.originalFilename) {
+              console.warn(`Skipping empty ${formItem}`);
+              return;
             }
 
-            file_nth++;
-            readStream
-              .on("data", function (chunk) {
-                fileSystem.appendFileSync(each_file.name, chunk);
-                chunks_iteration = ++chunks_iteration;
-              })
-              .on("end", function () {
-                chunks_iteration = 0;
-              });
+            console.log(`Processing ${formItem}:`, file.originalFilename);
+
+            const targetPath = path.join(uploadsDir, file.originalFilename);
+            console.log(`Moving file to: ${targetPath}`);
+
+            if (!fileSystem.existsSync(path.dirname(targetPath))) {
+              fileSystem.mkdirSync(path.dirname(targetPath), { recursive: true });
+            }
+
+            fileSystem.renameSync(file.filepath, targetPath);
+            console.log(`File moved successfully: ${file.originalFilename}`);
+            filesUploaded++;
           });
         } else {
-          let readStream = fileSystem.createReadStream(files[formItem].path, {
-            highWaterMark: 512 * 1024,
-          });
-          file_nth++;
-          readStream
-            .on("data", function (chunk) {
-              fileSystem.appendFileSync(files[formItem].name, chunk);
-              chunks_iteration = ++chunks_iteration;
-            })
-            .on("end", function () {
-              chunks_iteration = 0;
-            });
+          console.log(`No ${formItem} received`);
         }
       });
-      res.setHeader("Content-Type", "text/html");
-      res.write(htmlForm());
-      res.end();
-    });
-  }
+
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(htmlForm() + `<p>${filesUploaded} file(s) uploaded successfully!</p>`);
+    } catch (error) {
+      console.error("Error processing files:", error);
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Internal Server Error: " + error.message);
+    }
+  });
+  return;
+}
+
   var decodedUrl = decodeURIComponent(req.url);
 
   if (fileSystem.existsSync("." + decodedUrl)) {
@@ -104,7 +124,7 @@ server.listen(5000, (err) => {
       });
     else {
       console.log(
-        "You are not connected to any device, connect with mobile via hostpot/wifi then you can share files between your mobile and laptop\n"
+        "You are not connected to any device, connect with mobile via hotspot/wifi then you can share files between your mobile and laptop\n"
       );
 
       console.log(
@@ -119,7 +139,7 @@ function HtmlParent(insertion) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>SHare</title>
+        <title>Share</title>
         <link
           href="https://fonts.googleapis.com/icon?family=Material+Icons"
           rel="stylesheet"
@@ -198,7 +218,7 @@ function htmlForm() {
   `;
   return HtmlParent(return_form);
 }
-//b :) decimals
+
 function formatBytes(a, b = 2) {
   if (0 === a) return "0 Bytes";
   const c = 0 > b ? 0 : b,
