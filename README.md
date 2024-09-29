@@ -3,7 +3,7 @@
 Its helps to share small files and folders between devices, It's based on http. It will start a server on your system and provide you a link.
 Put provided link in your device browser.
 Start accessing your system's file remotely within range and click on files to download it.
-
+*Currently with 200Mb of maximum upload ([server.js](server.js) line 43)
 
 #### When you need to share files between your phone and Laptop,
 * connect them via hotspot or common wifi and run server.js file.
